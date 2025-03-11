@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GibberLink Töne und Interpretation</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    textarea { font-family: monospace; width: 100%; max-width: 600px; }
+    button { margin: 5px 0; }
+  </style>
+</head>
+<body>
+  <h1>GibberLink Töne und Interpretation</h1>
+
+  <section>
+    <h3>1. Text zu Tönen (Kodierung)</h3>
+    <textarea id="inputText" rows="3" placeholder="Gib hier den Text ein"></textarea><br>
+    <button id="playTonesButton">Töne abspielen</button>
+    <p>Hinweis: Jeder Buchstabe wird in einen Ton umgerechnet und nacheinander abgespielt.</p>
+  </section>
+
+  <section>
+    <h3>2. Töne aufzeichnen und interpretieren (Dekodierung)</h3>
+    <button id="startRecordingButton">Aufnahme starten</button>
+    <button id="stopRecordingButton" disabled>Aufnahme stoppen</button>
+    <p>Erkannter Text:</p>
+    <textarea id="decodedOutput" rows="3" readonly></textarea>
+    <p>Hinweis: Starte die Aufnahme idealerweise direkt während (oder kurz nach) dem Abspielen der Töne.</p>
+  </section>
+
+  <script>
+    // Parameter für die Umrechnung
+    const baseFrequency = 300; // Basisfrequenz in Hz
+    const scaleFactor = 2;     // Skalierung: charCode * scaleFactor
+    const toneDuration = 300;  // Dauer eines Tones in Millisekunden
+    const pauseDuration = 100; // Pause zwischen Tönen in Millisekunden
+
+    // Funktion: Text in Töne umwandeln und abspielen
+    function playTones(text) {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      let currentTime = audioCtx.currentTime;
+      for (let i = 0; i < text.length; i++) {
+        const charCode = text.charCodeAt(i);
+        const freq = baseFrequency + (charCode * scaleFactor);
+        // Erzeuge einen Oszillator für diesen Ton
+        const oscillator = audioCtx.createOscillator();
+        oscillator.frequency.setValueAtTime(freq, currentTime);
+        oscillator.connect(audioCtx.destination);
+        oscillator.start(currentTime);
+        oscillator.stop(currentTime + toneDuration / 1000);
+        // Nächster Ton wird nach Ton + Pause abgespielt
+        currentTime += (toneDuration + pauseDuration) / 1000;
+      }
+    }
+
+    // Event-Listener für das Abspielen der Töne
+    document.getElementById("playTonesButton").addEventListener("click", () => {
+      const text = document.getElementById("inputText").value;
+      if (!text.trim()) {
+        alert("Bitte Text eingeben!");
+        return;
+      }
+      playTones(text);
+    });
+
+    // Aufnahme und Dekodierung
+    let mediaRecorder;
+    let audioChunks = [];
+
+    document.getElementById("startRecordingButton").addEventListener("click", async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("getUserMedia wird von deinem Browser nicht unterstützt.");
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        mediaRecorder.ondataavailable = event => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+          }
+        };
+        mediaRecorder.onstop = processRecording;
+        mediaRecorder.start();
+        document.getElementById("startRecordingButton").disabled = true;
+        document.getElementById("stopRecordingButton").disabled = false;
+        console.log("Aufnahme gestartet...");
+      } catch (err) {
+        console.error("Fehler bei getUserMedia:", err);
+        alert("Fehler beim Zugriff auf das Mikrofon: " + err);
+      }
+    });
+
+    document.getElementById("stopRecordingButton").addEventListener("click", () => {
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+        document.getElementById("stopRecordingButton").disabled = true;
+        document.getElementById("startRecordingButton").disabled = false;
+        console.log("Aufnahme gestoppt.");
+      }
+    });
+
+    // Verarbeitung der Aufnahme: Blob in AudioBuffer umwandeln
+    function processRecording() {
+      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      const reader = new FileReader();
+      reader.onload = function() {
+        const arrayBuffer = reader.result;
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioCtx.decodeAudioData(arrayBuffer, (audioBuffer) => {
+          decodeTones(audioBuffer);
+        }, (e) => { console.error("Fehler beim Dekodieren der Audiodaten", e); });
+      };
+      reader.readAsArrayBuffer(audioBlob);
+    }
+
+    // Auto-Korrelations-Funktion zur Pitch-Erkennung (vereinfachte Version)
+    function autoCorrelate(buffer, sampleRate) {
+      const SIZE = buffer.length;
+      let sumSquares = 0;
+      for (let i = 0; i < SIZE; i++) {
+        sumSquares += buffer[i] * buffer[i];
+      }
+      const rms = Math.sqrt(sumSquares / SIZE);
+      if (rms < 0.01) return -1; // zu leises Signal
+
+      let r1 = 0, r2 = SIZE - 1;
+      for (let i = 0; i < SIZE; i++) {
+        if (Math.abs(buffer[i]) < rms) { r1 = i; break; }
+      }
+      for (let i = 1; i < SIZE; i++) {
+        if (Math.abs(buffer[SIZE - i]) < rms) { r2 = SIZE - i; break; }
+      }
+      const trimmedBuffer = buffer.slice(r1, r2);
+      const trimmedSize = trimmedBuffer.length;
+      const correlations = new Array(trimmedSize).fill(0);
+      for (let lag = 0; lag < trimmedSize; lag++) {
+        for (let i = 0; i < trimmedSize - lag; i++) {
+          correlations[lag] += trimmedBuffer[i] * trimmedBuffer[i + lag];
+        }
+      }
+      let d = 0;
+      while (correlations[d] > correlations[d + 1]) d++;
+      let maxval = -1, maxpos = -1;
+      for (let i = d; i < trimmedSize; i++) {
+        if (correlations[i] > maxval) {
+          maxval = correlations[i];
+          maxpos = i;
+        }
+      }
+      let T0 = maxpos;
+      // Parabolische Interpolation zur Verbesserung der Genauigkeit
+      if (T0 > 0 && T0 < trimmedSize - 1) {
+        const x1 = correlations[T0 - 1], x2 = correlations[T0], x3 = correlations[T0 + 1];
+        const a = (x1 + x3 - 2 * x2) / 2;
+        const b = (x3 - x1) / 2;
+        if (a) T0 = T0 - b / (2 * a);
+      }
+      return sampleRate / T0;
+    }
+
+    // Funktion: Audiodaten in Segmente zerlegen, Frequenzen ermitteln und in Text umwandeln
+    function decodeTones(audioBuffer) {
+      const sampleRate = audioBuffer.sampleRate;
+      const channelData = audioBuffer.getChannelData(0);
+      // Wir nehmen an, dass die Töne von Anfang an ohne Versatz abgespielt wurden.
+      // Segmentdauer entspricht (toneDuration + pauseDuration)
+      const segmentDuration = (toneDuration + pauseDuration) / 1000; // in Sekunden
+      const totalSegments = Math.floor(audioBuffer.duration / segmentDuration);
+      let decodedText = "";
+      // Für jedes Segment nehmen wir ein kleines Fenster (z. B. 100ms) aus der Mitte des Tonanteils
+      const subSegmentDuration = 0.1; // Sekunden
+      const subSegmentSamples = Math.floor(subSegmentDuration * sampleRate);
+      const toneSegmentSamples = Math.floor((toneDuration / 1000) * sampleRate);
+      for (let i = 0; i < totalSegments; i++) {
+        const segmentStart = Math.floor(i * segmentDuration * sampleRate);
+        // Wähle ein Fenster in der Mitte des Tonabschnitts
+        const toneStart = segmentStart + Math.floor(toneSegmentSamples / 2) - Math.floor(subSegmentSamples / 2);
+        const segmentData = channelData.slice(toneStart, toneStart + subSegmentSamples);
+        const frequency = autoCorrelate(segmentData, sampleRate);
+        if (frequency > 0) {
+          const charCode = Math.round((frequency - baseFrequency) / scaleFactor);
+          decodedText += String.fromCharCode(charCode);
+        }
+      }
+      document.getElementById("decodedOutput").value = decodedText;
+    }
+  </script>
+</body>
+</html>

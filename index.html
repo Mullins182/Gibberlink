@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <textarea id="textInput" placeholder="Text eintippen..."></textarea>
+    <button onclick="playTones()">Töne abspielen</button>
+    
+    <script>
+        let baseFrequency = 600;
+        let scaleFactor = 10;
+        let toneDuraction = 100;
+        let pauseDuraction = 10; 
+
+        function playTones(){
+            let text = textInput.value;
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            let currentTime = audioCtx.currentTime;
+
+            for (let index = 0; index < text.length; index++) {
+                let charCode = text.charCodeAt(index);
+                let freq = baseFrequency + (charCode * scaleFactor);
+                let oscillator = audioCtx.createOscillator();
+                oscillator.frequency.setValueAtTime(freq, currentTime);
+                oscillator.connect(audioCtx.destination);
+                oscillator.start(currentTime);
+                oscillator.stop(currentTime + toneDuraction / 1000);
+                currentTime += (toneDuraction + pauseDuraction) / 1000;
+            }
+        }
+    </script>
+    
+</body>
+</html>
