@@ -55,7 +55,7 @@
       const baseFrequency = 377; // Basisfrequenz in Hz
       const scaleFactor = 10; // Skalierung: charCode * scaleFactor
       const toneDuration = 30; // Dauer eines Tones in Millisekunden
-      const pauseDuration = 5; // Pause zwischen Tönen in Millisekunden
+      const pauseDuration = 17; // Pause zwischen Tönen in Millisekunden
       let toneCounter = 0;
 
       // function delay(ms) {
@@ -96,7 +96,12 @@
         }
       }
 
-      // Event-Listener für das Abspielen der Töne
+      // Event-Listener
+
+      document.getElementById("inputText").addEventListener("input", () => {
+        toneCounter = 0;
+      });
+
       document
         .getElementById("playTonesButton")
         .addEventListener("click", () => {
